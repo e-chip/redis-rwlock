@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/go-redis/redis"
-	"github.com/satori/go.uuid"
+	"github.com/gofrs/uuid"
 )
 
 var (
