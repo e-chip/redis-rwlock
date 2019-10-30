@@ -37,7 +37,7 @@ end`
 const readUnlockScript = `
 if redis.call("DECR", KEYS[2]) == 0 then
     if redis.call("GET", KEYS[1]) == ARGV[1] then
-        redis.call("DEL", KEYS[1])
+        redis.call("DEL", KEYS[1], KEYS[2])
         return 1
     else
         return 0
