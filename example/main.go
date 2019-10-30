@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	rwlock "github.com/e-chip/redis-rwlock"
+	rwlock "github.com/e-chip/redis-rwlock/v1"
 	"github.com/go-redis/redis"
 )
 
