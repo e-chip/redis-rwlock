@@ -116,11 +116,20 @@ func (l *lockerImpl) keepRefreshing(refresh func() (bool, error), stop chan stru
 }
 
 func (l *lockerImpl) acquireReader() (bool, error) {
+	var preferWriter = 0
+	switch l.options.Mode {
+	case ModePreferWriter:
+		preferWriter = 1
+	case ModePreferReader:
+		preferWriter = 0
+	default:
+		return false, ErrUnknownMode
+	}
 	return l.execScript(acquireReadLock, []string{
 		l.keyGlobalLock,
 		l.keyReadersCount,
 		l.keyWriterIntent,
-	}, l.options.ReaderLockToken, l.lockTTL)
+	}, l.options.ReaderLockToken, l.lockTTL, preferWriter)
 }
 
 func (l *lockerImpl) releaseReader() (bool, error) {

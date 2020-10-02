@@ -1,14 +1,14 @@
 -- Reader lock acquire script.
 
--- This script retreats if writer has set it's intention to acquire lock.
+-- If key WRITER_PREFERRING is not 0 this script retreats if writer has set it's intention to acquire lock.
 -- The script increments number of shared locks and if it was the first to do that it tries to acquire lock.
 -- If it fails to acquire lock then it decrements number of shared locks back to previous value.
 
 -- KEYS = [GLOB_LOCK_KEY, READ_LOCK_REF_COUNT, WRITER_LOCK_INTENT]
--- ARGV = [TOKEN, EXPIRATION_TIMEOUT]
+-- ARGV = [TOKEN, EXPIRATION_TIMEOUT, WRITER_PREFERRING]
 
--- check writer intention to acquire lock
-if redis.call("EXISTS", KEYS[3]) == 1 then
+-- if writer preferring enabled then check writer intention to acquire lock
+if ARGV[3] ~= 0 and redis.call("EXISTS", KEYS[3]) == 1 then
     -- failed
     return 0
 else
