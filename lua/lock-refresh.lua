@@ -1,3 +1,7 @@
+-- Lock timer refresh script.
+
+-- This script checks if the lock was acquired by the same owner and then refreshes the expiration timer.
+
 -- KEYS = [GLOB_LOCK_KEY]
 -- ARGV = [TOKEN, EXPIRATION_TIMEOUT]
 
