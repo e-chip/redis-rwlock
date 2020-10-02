@@ -35,7 +35,24 @@ type Options struct {
 	// ReaderLockToken should be the same for all readers group.
 	// You can override default token here to create subgroups of readers.
 	ReaderLockToken string
+
+	// Mode of the lock behavior.
+	// Defaults to writer-preferring behavior in order not to break back compatibility.
+	// Default: ModePreferWriter
+	Mode Mode
 }
+
+// Mode of the lock behavior.
+type Mode int
+
+const (
+	// ModeUndefined will trigger default option to be used.
+	ModeUndefined Mode = iota
+	// ModePreferWriter makes the writer and reader to have equal priority.
+	ModePreferReader
+	// ModePreferWriter makes the writer to have higher priority over the reader.
+	ModePreferWriter
+)
 
 func prepareOpts(opts *Options) {
 	const (
@@ -47,6 +64,8 @@ func prepareOpts(opts *Options) {
 		retryCountDef    = 200
 		retryIntervalDef = 10 * time.Millisecond
 		readerTokenDef   = "read_c2d-75a1-4b5b-a6fb-b0754224c666"
+
+		modeDef = ModePreferWriter
 	)
 
 	if opts.LockTTL == 0 {
@@ -75,5 +94,9 @@ func prepareOpts(opts *Options) {
 
 	if len(opts.ReaderLockToken) == 0 {
 		opts.ReaderLockToken = readerTokenDef
+	}
+
+	if opts.Mode == ModeUndefined {
+		opts.Mode = modeDef
 	}
 }

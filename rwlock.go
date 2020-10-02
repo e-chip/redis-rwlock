@@ -14,10 +14,12 @@ var (
 	ErrConnection = errors.New("redis connection error")
 	// ErrTimeout is returned by Locker methods if timeout was specified and was exceeded while waiting for lock.
 	ErrTimeout = errors.New("timeout exceeded but lock not acquired")
-	// ErrInterrupted is returned by Locker methods if they were interrupted via Context
+	// ErrInterrupted is returned by Locker methods if they were interrupted via Context.
 	ErrInterrupted = errors.New("interrupted")
-	// ErrNotReleased is returned by locker methods if lock was not released
+	// ErrNotReleased is returned by locker methods if lock was not released.
 	ErrNotReleased = errors.New("lock was not released")
+	// ErrUnknownMode is return by locker methods in case the lock was set to unknown mode.
+	ErrUnknownMode = errors.New("lock is in unknown mode")
 )
 
 // Locker allows to execute given functions at reader or writer access privilege.
