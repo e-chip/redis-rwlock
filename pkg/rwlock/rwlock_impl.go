@@ -10,7 +10,7 @@ import (
 
 type lockerImpl struct {
 	redisClient *redis.Client
-	options     *Options
+	options     Options
 
 	keyGlobalLock   string
 	keyReadersCount string
