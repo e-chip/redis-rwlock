@@ -1,3 +1,9 @@
+-- Reader lock acquire script.
+
+-- This script retreats if writer has set it's intention to acquire lock.
+-- The script increments number of shared locks and if it was the first to do that it tries to acquire lock.
+-- If it fails to acquire lock then it decrements number of shared locks back to previous value.
+
 -- KEYS = [GLOB_LOCK_KEY, READ_LOCK_REF_COUNT, WRITER_LOCK_INTENT]
 -- ARGV = [TOKEN, EXPIRATION_TIMEOUT]
 

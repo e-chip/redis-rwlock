@@ -29,8 +29,15 @@ type Locker interface {
 }
 
 // Make new instance of RW-Locker.
-// keyLock, keyReadersCount, keyWriterIntent must be unique keys that will be used by locker implementation.
+// Deprecated due to incorrect naming of the function.
+// Use #New instead.
 func Make(redisClient *redis.Client, keyLock, keyReadersCount, keyWriterIntent string, opts *Options) Locker {
+	return New(redisClient, keyLock, keyReadersCount, keyWriterIntent, opts)
+}
+
+// New instance of RW-Locker.
+// keyLock, keyReadersCount, keyWriterIntent must be unique keys that will be used by locker implementation.
+func New(redisClient *redis.Client, keyLock, keyReadersCount, keyWriterIntent string, opts *Options) Locker {
 	if opts == nil {
 		opts = &Options{}
 	}

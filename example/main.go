@@ -75,7 +75,7 @@ func main() {
 			DB:      9,
 		})
 		example = example{
-			locker: rwlock.Make(redisClient, "GLOBAL_LOCK", "READER_COUNT", "WRITER_INTENT", &rwlock.Options{}),
+			locker: rwlock.New(redisClient, "GLOBAL_LOCK", "READER_COUNT", "WRITER_INTENT", &rwlock.Options{}),
 			doneC:  make(chan struct{}),
 		}
 	)

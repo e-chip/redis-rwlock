@@ -1,3 +1,7 @@
+-- Writer lock release script.
+
+-- This scripts checks if the lock was acquired by the same owner and then releases it.
+
 -- KEYS = [GLOB_LOCK_KEY]
 -- ARGV = [TOKEN]
 

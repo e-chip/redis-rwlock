@@ -1,3 +1,8 @@
+-- Reader lock release script.
+
+-- This script decrements number of shared locks and if it was the last tries to release global lock.
+-- If it fails to release global lock number of shared lock remains decremented.
+
 -- KEYS = [GLOB_LOCK_KEY, READ_LOCK_REF_COUNT]
 -- ARGV = [TOKEN]
 

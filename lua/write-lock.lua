@@ -1,3 +1,9 @@
+-- Writer lock acquire script.
+
+-- This script sets writer intention to acquire the lock.
+-- Then in tries to acquire the lock. If lock is acquired successfully intention is reset.
+-- If it failed to acquire the lock the intention remains set to prevent adding new writer-preferring readers.
+
 -- KEYS = [GLOB_LOCK_KEY, READ_LOCK_REF_COUNT, WRITER_LOCK_INTENT]
 -- ARGV = [TOKEN, EXPIRATION_TIMEOUT]
 
