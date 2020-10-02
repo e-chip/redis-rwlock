@@ -48,7 +48,7 @@ type Mode int
 const (
 	// ModeUndefined will trigger default option to be used.
 	ModeUndefined Mode = iota
-	// ModePreferWriter makes the writer and reader to have equal priority.
+	// ModePreferReader makes the writer and reader to have equal priority.
 	ModePreferReader
 	// ModePreferWriter makes the writer to have higher priority over the reader.
 	ModePreferWriter
