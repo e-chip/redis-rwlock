@@ -5,8 +5,9 @@ import (
 	"sync"
 	"time"
 
-	rwlock "github.com/e-chip/redis-rwlock"
-	"github.com/go-redis/redis"
+	rwlock "github.com/aldogint/redis-rwlock"
+	"github.com/aldogint/redis-rwlock/pkg/redis/redigo"
+	"github.com/gomodule/redigo/redis"
 )
 
 const (
@@ -68,18 +69,17 @@ func (e *example) Wait() {
 
 func main() {
 	var (
-		sharedData  = 0
-		redisClient = redis.NewClient(&redis.Options{
-			Network: "tcp",
-			Addr:    "localhost:6379",
-			DB:      9,
+		sharedData = 0
+		redisPool  = redigo.NewPool(&redis.Pool{
+			Dial: func() (redis.Conn, error) {
+				return redis.Dial("tcp", "localhost:6379")
+			},
 		})
 		example = example{
-			locker: rwlock.New(redisClient, "GLOBAL_LOCK", "READER_COUNT", "WRITER_INTENT", &rwlock.Options{}),
+			locker: rwlock.New(redisPool, "GLOBAL_LOCK", "READER_COUNT", "WRITER_INTENT", &rwlock.Options{}),
 			doneC:  make(chan struct{}),
 		}
 	)
-	defer redisClient.Close()
 	for i := 0; i < readersCount; i++ {
 		example.ReadSharedData(&sharedData)
 	}

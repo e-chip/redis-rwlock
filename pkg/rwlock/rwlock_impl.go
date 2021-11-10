@@ -1,16 +1,17 @@
 package rwlock
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
 
-	"github.com/go-redis/redis"
+	"github.com/aldogint/redis-rwlock/pkg/redis"
 )
 
 type lockerImpl struct {
-	redisClient *redis.Client
-	options     Options
+	redisPool redis.Pool
+	options   Options
 
 	keyGlobalLock   string
 	keyReadersCount string
@@ -29,9 +30,6 @@ func (l *lockerImpl) Write(fn func()) error {
 }
 
 func (l *lockerImpl) do(fn func(), acquire func() (bool, error), refresh func() (bool, error), release func() (bool, error)) error {
-	if l.redisClient.Ping().Err() != nil {
-		return ErrConnection
-	}
 	stopRefreshing := make(chan struct{})
 	acquired, err := l.execute(acquire, l.options.RetryCount)
 	if err != nil {
@@ -166,12 +164,28 @@ func (l *lockerImpl) refreshWriter() (bool, error) {
 }
 
 func (l *lockerImpl) execScript(script *redis.Script, keys []string, args ...interface{}) (bool, error) {
-	status, err := script.Run(l.redisClient, keys, args...).Result()
+	var keysAndArgs []interface{}
+
+	for _, k := range keys {
+		keysAndArgs = append(keysAndArgs, k)
+	}
+
+	keysAndArgs = append(keysAndArgs, args...)
+
+	conn, err := l.redisPool.Get(context.TODO())
 	if err != nil {
 		return false, err
 	}
+	defer conn.Close()
+
+	status, err := conn.Eval(script, keysAndArgs...)
+	if err != nil {
+		return false, err
+	}
+
 	if status == int64(1) {
 		return true, nil
 	}
+
 	return false, nil
 }
