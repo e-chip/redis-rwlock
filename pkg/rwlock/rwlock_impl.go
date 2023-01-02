@@ -1,11 +1,12 @@
 package rwlock
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
 
-	"github.com/go-redis/redis"
+	"github.com/go-redis/redis/v9"
 )
 
 type lockerImpl struct {
@@ -20,30 +21,30 @@ type lockerImpl struct {
 	lockTTL     string
 }
 
-func (l *lockerImpl) Read(fn func()) error {
-	return l.do(fn, l.acquireReader, l.refreshReader, l.releaseReader)
+func (l *lockerImpl) Read(ctx context.Context, fn func()) error {
+	return l.do(ctx, fn, l.acquireReader, l.refreshReader, l.releaseReader)
 }
 
-func (l *lockerImpl) Write(fn func()) error {
-	return l.do(fn, l.acquireWriter, l.refreshWriter, l.releaseWriter)
+func (l *lockerImpl) Write(ctx context.Context, fn func()) error {
+	return l.do(ctx, fn, l.acquireWriter, l.refreshWriter, l.releaseWriter)
 }
 
-func (l *lockerImpl) do(fn func(), acquire func() (bool, error), refresh func() (bool, error), release func() (bool, error)) error {
-	if l.redisClient.Ping().Err() != nil {
+func (l *lockerImpl) do(ctx context.Context, fn func(), acquire func(ctx context.Context) (bool, error), refresh func(ctx context.Context) (bool, error), release func(ctx context.Context) (bool, error)) error {
+	if l.redisClient.Ping(ctx).Err() != nil {
 		return ErrConnection
 	}
 	stopRefreshing := make(chan struct{})
-	acquired, err := l.execute(acquire, l.options.RetryCount)
+	acquired, err := l.execute(ctx, acquire, l.options.RetryCount)
 	if err != nil {
 		return err
 	}
 	if !acquired {
 		return ErrTimeout
 	}
-	go l.keepRefreshing(refresh, stopRefreshing)
+	go l.keepRefreshing(ctx, refresh, stopRefreshing)
 	fnErr := l.runFn(fn)
 	stopRefreshing <- struct{}{}
-	released, err := release()
+	released, err := release(ctx)
 	if fnErr != nil {
 		return fnErr
 	}
@@ -75,9 +76,9 @@ func (l *lockerImpl) runFn(fn func()) (err error) {
 	return
 }
 
-func (l *lockerImpl) execute(fn func() (bool, error), attempts int) (bool, error) {
+func (l *lockerImpl) execute(ctx context.Context, fn func(ctx context.Context) (bool, error), attempts int) (bool, error) {
 	for i := 0; i < attempts; i++ {
-		if ok, err := fn(); err != nil {
+		if ok, err := fn(ctx); err != nil {
 			return false, err
 		} else if ok {
 			return true, nil
@@ -98,7 +99,7 @@ func (l *lockerImpl) wait(d time.Duration) error {
 	}
 }
 
-func (l *lockerImpl) keepRefreshing(refresh func() (bool, error), stop chan struct{}) {
+func (l *lockerImpl) keepRefreshing(ctx context.Context, refresh func(ctx context.Context) (bool, error), stop chan struct{}) {
 	timeout := l.options.LockTTL / 2
 	timer := time.NewTicker(timeout)
 	defer timer.Stop()
@@ -110,12 +111,12 @@ func (l *lockerImpl) keepRefreshing(refresh func() (bool, error), stop chan stru
 		case <-l.options.Context.Done():
 			return
 		case <-timer.C:
-			refresh()
+			refresh(ctx)
 		}
 	}
 }
 
-func (l *lockerImpl) acquireReader() (bool, error) {
+func (l *lockerImpl) acquireReader(ctx context.Context) (bool, error) {
 	var preferWriter = 0
 	switch l.options.Mode {
 	case ModePreferWriter:
@@ -125,48 +126,48 @@ func (l *lockerImpl) acquireReader() (bool, error) {
 	default:
 		return false, ErrUnknownMode
 	}
-	return l.execScript(acquireReadLock, []string{
+	return l.execScript(ctx, acquireReadLock, []string{
 		l.keyGlobalLock,
 		l.keyReadersCount,
 		l.keyWriterIntent,
 	}, l.options.ReaderLockToken, l.lockTTL, preferWriter)
 }
 
-func (l *lockerImpl) releaseReader() (bool, error) {
-	return l.execScript(releaseReadLock, []string{
+func (l *lockerImpl) releaseReader(ctx context.Context) (bool, error) {
+	return l.execScript(ctx, releaseReadLock, []string{
 		l.keyGlobalLock,
 		l.keyReadersCount,
 	}, l.options.ReaderLockToken)
 }
 
-func (l *lockerImpl) refreshReader() (bool, error) {
-	return l.execScript(refreshLock, []string{
+func (l *lockerImpl) refreshReader(ctx context.Context) (bool, error) {
+	return l.execScript(ctx, refreshLock, []string{
 		l.keyGlobalLock,
 	}, l.options.ReaderLockToken, l.lockTTL)
 }
 
-func (l *lockerImpl) acquireWriter() (bool, error) {
-	return l.execScript(acquireWriteLock, []string{
+func (l *lockerImpl) acquireWriter(ctx context.Context) (bool, error) {
+	return l.execScript(ctx, acquireWriteLock, []string{
 		l.keyGlobalLock,
 		l.keyReadersCount,
 		l.keyWriterIntent,
 	}, l.writerToken, l.lockTTL)
 }
 
-func (l *lockerImpl) releaseWriter() (bool, error) {
-	return l.execScript(releaseWriteLock, []string{
+func (l *lockerImpl) releaseWriter(ctx context.Context) (bool, error) {
+	return l.execScript(ctx, releaseWriteLock, []string{
 		l.keyGlobalLock,
 	}, l.writerToken)
 }
 
-func (l *lockerImpl) refreshWriter() (bool, error) {
-	return l.execScript(refreshLock, []string{
+func (l *lockerImpl) refreshWriter(ctx context.Context) (bool, error) {
+	return l.execScript(ctx, refreshLock, []string{
 		l.keyGlobalLock,
 	}, l.writerToken, l.lockTTL)
 }
 
-func (l *lockerImpl) execScript(script *redis.Script, keys []string, args ...interface{}) (bool, error) {
-	status, err := script.Run(l.redisClient, keys, args...).Result()
+func (l *lockerImpl) execScript(ctx context.Context, script *redis.Script, keys []string, args ...interface{}) (bool, error) {
+	status, err := script.Run(ctx, l.redisClient, keys, args...).Result()
 	if err != nil {
 		return false, err
 	}

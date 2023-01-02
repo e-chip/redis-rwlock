@@ -1,12 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
 
 	rwlock "github.com/e-chip/redis-rwlock"
-	"github.com/go-redis/redis"
+	"github.com/go-redis/redis/v9"
 )
 
 const (
@@ -17,6 +18,7 @@ const (
 )
 
 type example struct {
+	ctx    context.Context
 	locker rwlock.Locker
 	wg     sync.WaitGroup
 	doneC  chan struct{}
@@ -26,7 +28,7 @@ func (e *example) WriteSharedData(sharedData *int) {
 	e.wg.Add(1)
 	go func() {
 		for i := 0; i < writeIterations; i++ {
-			err := e.locker.Write(func() {
+			err := e.locker.Write(e.ctx, func() {
 				fmt.Printf("Writing...\n")
 				time.Sleep(writeDuration)
 				(*sharedData)++
@@ -51,7 +53,7 @@ func (e *example) ReadSharedData(sharedData *int) {
 				e.wg.Done()
 				return
 			default:
-				err := e.locker.Read(func() {
+				err := e.locker.Read(e.ctx, func() {
 					fmt.Printf("Read: %d\n", *sharedData)
 				})
 				if err != nil {
@@ -75,6 +77,7 @@ func main() {
 			DB:      9,
 		})
 		example = example{
+			ctx:    context.Background(),
 			locker: rwlock.New(redisClient, "GLOBAL_LOCK", "READER_COUNT", "WRITER_INTENT", &rwlock.Options{}),
 			doneC:  make(chan struct{}),
 		}

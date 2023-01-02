@@ -1,7 +1,7 @@
 package rwlock
 
 import (
-	"github.com/go-redis/redis"
+	"github.com/go-redis/redis/v9"
 )
 
 var (

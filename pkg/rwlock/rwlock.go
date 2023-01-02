@@ -1,11 +1,12 @@
 package rwlock
 
 import (
+	"context"
 	"errors"
 	"strconv"
 	"time"
 
-	"github.com/go-redis/redis"
+	"github.com/go-redis/redis/v9"
 	"github.com/gofrs/uuid"
 )
 
@@ -25,9 +26,9 @@ var (
 // Locker allows to execute given functions at reader or writer access privilege.
 type Locker interface {
 	// Read executes given function with shared reader access.
-	Read(fn func()) error
+	Read(ctx context.Context, fn func()) error
 	// Write executes given function with unique writer access.
-	Write(fn func()) error
+	Write(ctx context.Context, fn func()) error
 }
 
 // New instance of RW-Locker.
