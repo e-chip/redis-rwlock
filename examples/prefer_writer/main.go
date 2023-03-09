@@ -7,7 +7,7 @@ import (
 	"time"
 
 	rwlock "github.com/e-chip/redis-rwlock"
-	"github.com/go-redis/redis/v9"
+	"github.com/redis/go-redis/v9"
 )
 
 const (

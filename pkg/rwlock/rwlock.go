@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/go-redis/redis/v9"
 	"github.com/gofrs/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 var (
