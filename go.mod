@@ -4,7 +4,7 @@ go 1.17
 
 require (
 	github.com/gofrs/uuid v3.3.0+incompatible
-	github.com/redis/go-redis/v9 v9.0.2
+	github.com/redis/go-redis/v9 v9.2.1
 )
 
 require (
