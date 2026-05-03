@@ -4,6 +4,12 @@ Distributed RW-lock for Go backed by Redis. Readers share the lock; a writer acq
 
 All lock operations are single atomic Lua scripts. Automatic TTL refresh keeps the lock alive for the duration of the protected function.
 
+## Requirements
+
+- **Redis 3.2+** — required for `redis.replicate_commands()`, which enables script-effects replication. Without it, Redis replays the entire `EVAL` call on AOF recovery and re-executes scripts with relative TTLs reset to current time.
+- **Redis 7.0+** — script-effects replication is automatic; no extra configuration needed.
+- **Redis Cluster** — both keys derived from the prefix (`prefix:lock`, `prefix:counter`) must land in the same hash slot. Use a hash tag in the prefix: `"{myapp:resource}"`.
+
 ## Installation
 
 ```/dev/null/sh.txt#L1-1
@@ -35,7 +41,7 @@ client := goredis.NewClient(&goredis.Options{Addr: "localhost:6379"})
 
 locker, err := rwlock.New(
     goredisv9.New(client),
-    "myapp:rwlock", // unique key prefix — three Redis keys are derived from it
+    "myapp:rwlock", // unique key prefix — two Redis keys are derived from it
     rwlock.Options{},
 )
 if err != nil { ... }
@@ -65,29 +71,28 @@ type RedisClient interface {
 
 ## Options
 
-| Option            | Default                                    | Minimum | Description |
-|-------------------|--------------------------------------------|---------|-------------|
-| `LockTTL`         | 1 s                                        | 100 ms  | Lock expiry. Refreshed every `LockTTL/2` while held. Keep below `RetryCount × RetryInterval` to avoid spurious `ErrTimeout`. |
-| `RetryCount`      | 200                                        | 1       | Acquisition attempts before returning `ErrTimeout`. |
-| `RetryInterval`   | 10 ms                                      | 1 ms    | Pause between acquisition attempts. |
-| `AppID`           | `""`                                       | —       | Prefix added to the writer token. Useful for identifying which process holds the lock in Redis. |
-| `ReaderLockToken` | `"read_c2d-75a1-4b5b-a6fb-b0754224c666"` | —       | Shared token for all readers in a group. Override to create independent reader groups on the same key prefix. |
-| `Mode`            | `ModePreferWriter`                         | —       | See [Mutex modes](#mutex-modes). |
-
-## Mutex modes
-
-**`ModePreferWriter`** (default) — when a writer is waiting, it sets an *intent* key. New readers back off until the writer acquires the lock. Prevents writer starvation.
-
-**`ModePreferReader`** — readers ignore the writer intent key. Writers must wait for all readers (present and future) to finish. May starve writers under sustained read load.
+| Option            | Default                                  | Minimum | Description                                                                                                                  |
+| ----------------- | ---------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `LockTTL`         | 1 s                                      | 100 ms  | Lock expiry. Refreshed every `LockTTL/2` while held. Keep below `RetryCount × RetryInterval` to avoid spurious `ErrTimeout`. |
+| `RetryCount`      | 200                                      | 1       | Acquisition attempts before returning `ErrTimeout`.                                                                          |
+| `RetryInterval`   | 10 ms                                    | 1 ms    | Pause between acquisition attempts.                                                                                          |
+| `AppID`           | `""`                                     | —       | Prefix added to the writer token. Useful for identifying which process holds the lock in Redis.                              |
+| `ReaderLockToken` | `"read_c2d-75a1-4b5b-a6fb-b0754224c666"` | —       | Shared token for all readers in a group. Override to create independent reader groups on the same key prefix.                |
 
 ## Errors
 
-| Error | When |
-|---|---|
-| `ErrTimeout` | Lock not acquired within `RetryCount` attempts. |
-| `ErrInterrupted` | Context was cancelled while waiting for the lock. |
+| Error            | When                                                                        |
+| ---------------- | --------------------------------------------------------------------------- |
+| `ErrTimeout`     | Lock not acquired within `RetryCount` attempts.                             |
+| `ErrInterrupted` | Context was cancelled while waiting for the lock.                           |
 | `ErrNotReleased` | Lock was held but could not be released (e.g. lock expired before release). |
 
 ## Lua scripts
 
-All five operations (read-lock, read-unlock, write-lock, write-unlock, lock-refresh) are Lua scripts embedded at compile time from `lua/`. Each script is a single atomic Redis call and includes inline comments.
+All five operations (read-lock, read-unlock, write-lock, write-unlock, lock-refresh) are Lua scripts embedded at compile time from `lua/`. Each script is a single atomic Redis call.
+
+**Determinism** — scripts contain no random or time-based operations. Given the same database state and arguments they always produce the same result, satisfying Redis replication requirements.
+
+**AOF / replication safety** — every script calls `redis.replicate_commands()` (guarded for Redis < 3.2 compatibility). This enables script-effects replication: Redis logs individual write commands with absolute timestamps (`PEXPIREAT`, `SET PXAT`) instead of the `EVAL` call. On AOF recovery or replica replay, lock TTLs are preserved exactly rather than being reset relative to the replay time.
+
+**Algorithm** — mirrors `sync.RWMutex`: a shared integer counter tracks active readers. When a writer is waiting it subtracts a large bias (`1<<30`) from the counter, making it negative and blocking new readers. The last departing reader detects the negative counter, releases the lock, and the writer acquires it on its next attempt.

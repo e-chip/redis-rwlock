@@ -11,9 +11,8 @@ type lockerImpl struct {
 	redisClient RedisClient
 	options     Options
 
-	keyGlobalLock   string
-	keyReadersCount string
-	keyWriterIntent string
+	keyLock    string
+	keyCounter string
 
 	writerToken string
 	lockTTL     string
@@ -128,47 +127,41 @@ func (l *lockerImpl) keepRefreshing(ctx context.Context, refresh func(context.Co
 }
 
 func (l *lockerImpl) acquireReader(ctx context.Context) (bool, error) {
-	preferWriter := 0
-	if l.options.Mode == ModePreferWriter {
-		preferWriter = 1
-	}
 	return l.execScript(ctx, readLockScript, []string{
-		l.keyGlobalLock,
-		l.keyReadersCount,
-		l.keyWriterIntent,
-	}, l.options.ReaderLockToken, l.lockTTL, preferWriter)
+		l.keyLock,
+		l.keyCounter,
+	}, l.options.ReaderLockToken, l.lockTTL)
 }
 
 func (l *lockerImpl) releaseReader(ctx context.Context) (bool, error) {
 	return l.execScript(ctx, readUnlockScript, []string{
-		l.keyGlobalLock,
-		l.keyReadersCount,
+		l.keyLock,
+		l.keyCounter,
 	}, l.options.ReaderLockToken)
 }
 
 func (l *lockerImpl) refreshReader(ctx context.Context) (bool, error) {
 	return l.execScript(ctx, lockRefreshScript, []string{
-		l.keyGlobalLock,
+		l.keyLock,
 	}, l.options.ReaderLockToken, l.lockTTL)
 }
 
 func (l *lockerImpl) acquireWriter(ctx context.Context) (bool, error) {
 	return l.execScript(ctx, writeLockScript, []string{
-		l.keyGlobalLock,
-		l.keyReadersCount,
-		l.keyWriterIntent,
+		l.keyLock,
+		l.keyCounter,
 	}, l.writerToken, l.lockTTL)
 }
 
 func (l *lockerImpl) releaseWriter(ctx context.Context) (bool, error) {
 	return l.execScript(ctx, writeUnlockScript, []string{
-		l.keyGlobalLock,
+		l.keyLock,
 	}, l.writerToken)
 }
 
 func (l *lockerImpl) refreshWriter(ctx context.Context) (bool, error) {
 	return l.execScript(ctx, lockRefreshScript, []string{
-		l.keyGlobalLock,
+		l.keyLock,
 	}, l.writerToken, l.lockTTL)
 }
 

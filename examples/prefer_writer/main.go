@@ -26,10 +26,8 @@ type example struct {
 }
 
 func (e *example) WriteSharedData(sharedData *int) {
-	e.wg.Add(1)
-	go func() {
-		defer e.wg.Done()
-		for i := 0; i < writeIterations; i++ {
+	e.wg.Go(func() {
+		for range writeIterations {
 			err := e.locker.Write(context.Background(), func(_ context.Context) error {
 				fmt.Printf("Writing...\n")
 				time.Sleep(writeDuration)
@@ -43,13 +41,11 @@ func (e *example) WriteSharedData(sharedData *int) {
 			time.Sleep(writeInterval)
 		}
 		close(e.doneC)
-	}()
+	})
 }
 
 func (e *example) ReadSharedData(sharedData *int) {
-	e.wg.Add(1)
-	go func() {
-		defer e.wg.Done()
+	e.wg.Go(func() {
 		for {
 			select {
 			case <-e.doneC:
@@ -64,7 +60,7 @@ func (e *example) ReadSharedData(sharedData *int) {
 				}
 			}
 		}
-	}()
+	})
 }
 
 func (e *example) Wait() {
@@ -82,7 +78,7 @@ func main() {
 	locker, err := rwlock.New(
 		goredisv6.New(c),
 		"myapp:rwlock",
-		rwlock.Options{Mode: rwlock.ModePreferWriter},
+		rwlock.Options{},
 	)
 	if err != nil {
 		panic(err)
@@ -94,7 +90,7 @@ func main() {
 	}
 
 	sharedData := 0
-	for i := 0; i < readersCount; i++ {
+	for range readersCount {
 		ex.ReadSharedData(&sharedData)
 	}
 	ex.WriteSharedData(&sharedData)

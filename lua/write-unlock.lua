@@ -1,17 +1,19 @@
--- Writer lock release script.
+-- Writer lock release.
+--
+-- Verifies ownership by token before deleting the lock key.
+--
+-- Deterministic: no random or time-based operations.
+-- Script-effects replication is enabled so individual commands are logged to
+-- the AOF rather than the EVAL call, making recovery safe.
+--
+-- KEYS[1] = lock key
+-- ARGV[1] = writer token
 
--- This scripts checks if the lock was acquired by the same owner and then releases it.
+-- Opt into script-effects replication (Redis 3.2-6.x). No-op in Redis 7.0+.
+if redis.replicate_commands then redis.replicate_commands() end
 
--- KEYS = [GLOB_LOCK_KEY]
--- ARGV = [TOKEN]
-
--- check that global lock is ours
 if redis.call("GET", KEYS[1]) == ARGV[1] then
-    -- release global lock
     redis.call("DEL", KEYS[1])
-    -- success
     return 1
-else
-    -- failed to release global lock
-    return 0
 end
+return 0

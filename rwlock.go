@@ -29,27 +29,20 @@ type Locker interface {
 	Write(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
-// New returns a Locker that uses keyPrefix to derive the three Redis keys it manages internally.
+// New returns a Locker backed by two Redis keys derived from keyPrefix.
 // keyPrefix must be non-empty and unique per logical lock.
 func New(client RedisClient, keyPrefix string, opts Options) (Locker, error) {
 	if keyPrefix == "" {
 		return nil, errors.New("rwlock: keyPrefix must not be empty")
 	}
-	switch opts.Mode {
-	case ModeUndefined, ModePreferReader, ModePreferWriter:
-		// valid
-	default:
-		return nil, fmt.Errorf("rwlock: unknown mode %d", opts.Mode)
-	}
 	prepareOpts(&opts)
 	return &lockerImpl{
-		redisClient:     client,
-		options:         opts,
-		keyGlobalLock:   keyPrefix + ":lock",
-		keyReadersCount: keyPrefix + ":readers",
-		keyWriterIntent: keyPrefix + ":intent",
-		writerToken:     makeToken(opts.AppID),
-		lockTTL:         strconv.FormatInt(int64(opts.LockTTL/time.Millisecond), 10),
+		redisClient: client,
+		options:     opts,
+		keyLock:     keyPrefix + ":lock",
+		keyCounter:  keyPrefix + ":counter",
+		writerToken: makeToken(opts.AppID),
+		lockTTL:     strconv.FormatInt(int64(opts.LockTTL/time.Millisecond), 10),
 	}, nil
 }
 

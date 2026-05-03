@@ -406,95 +406,6 @@ func TestPanicRecoveryErrorType(t *testing.T) {
 	}
 }
 
-// --- Mutex modes ---
-
-// TestModePreferWriterBlocksNewReaders verifies that in ModePreferWriter, a late reader is blocked
-// while a writer has declared its intent to acquire the lock.
-func TestModePreferWriterBlocksNewReaders(t *testing.T) {
-	_, tc := setupMiniredis(t)
-
-	opts := rwlock.Options{
-		Mode:          rwlock.ModePreferWriter,
-		RetryCount:    3,
-		RetryInterval: 5 * time.Millisecond,
-	}
-	readerLocker, _ := rwlock.New(tc, "modetest", opts)
-	writerLocker, _ := rwlock.New(tc, "modetest", opts)
-
-	readerAcquired := make(chan struct{})
-	readerRelease := make(chan struct{})
-
-	go func() {
-		_ = readerLocker.Read(context.Background(), func(_ context.Context) error {
-			close(readerAcquired)
-			<-readerRelease
-			return nil
-		})
-	}()
-	<-readerAcquired
-
-	writerDone := make(chan error, 1)
-	go func() {
-		writerDone <- writerLocker.Write(context.Background(), func(_ context.Context) error { return nil })
-	}()
-
-	// Give the writer time to set its intent key.
-	time.Sleep(20 * time.Millisecond)
-
-	lateReaderLocker, _ := rwlock.New(tc, "modetest", opts)
-	err := lateReaderLocker.Read(context.Background(), func(_ context.Context) error { return nil })
-
-	close(readerRelease)
-	<-writerDone
-
-	if !errors.Is(err, rwlock.ErrTimeout) {
-		t.Errorf("expected late reader to be blocked by writer intent (ErrTimeout), got %v", err)
-	}
-}
-
-// TestModePreferReaderAllowsNewReaders verifies that in ModePreferReader, a late reader is NOT blocked
-// by writer intent and can join the existing reader group.
-func TestModePreferReaderAllowsNewReaders(t *testing.T) {
-	_, tc := setupMiniredis(t)
-
-	opts := rwlock.Options{
-		Mode:          rwlock.ModePreferReader,
-		RetryCount:    3,
-		RetryInterval: 5 * time.Millisecond,
-	}
-	readerLocker, _ := rwlock.New(tc, "modetest", opts)
-	writerLocker, _ := rwlock.New(tc, "modetest", opts)
-
-	readerAcquired := make(chan struct{})
-	readerRelease := make(chan struct{})
-
-	go func() {
-		_ = readerLocker.Read(context.Background(), func(_ context.Context) error {
-			close(readerAcquired)
-			<-readerRelease
-			return nil
-		})
-	}()
-	<-readerAcquired
-
-	writerDone := make(chan error, 1)
-	go func() {
-		writerDone <- writerLocker.Write(context.Background(), func(_ context.Context) error { return nil })
-	}()
-
-	time.Sleep(20 * time.Millisecond)
-
-	lateReaderLocker, _ := rwlock.New(tc, "modetest", opts)
-	err := lateReaderLocker.Read(context.Background(), func(_ context.Context) error { return nil })
-
-	close(readerRelease)
-	<-writerDone
-
-	if err != nil {
-		t.Errorf("expected late reader to succeed in ModePreferReader, got %v", err)
-	}
-}
-
 // --- Options and constructor ---
 
 // TestCustomOptions verifies that non-default options are accepted without error.
@@ -518,15 +429,6 @@ func TestNewEmptyPrefix(t *testing.T) {
 	_, err := rwlock.New(tc, "", rwlock.Options{})
 	if err == nil {
 		t.Fatal("expected error for empty keyPrefix, got nil")
-	}
-}
-
-// TestNewUnknownMode verifies that New rejects an unrecognised Mode value.
-func TestNewUnknownMode(t *testing.T) {
-	_, tc := setupMiniredis(t)
-	_, err := rwlock.New(tc, "testlock", rwlock.Options{Mode: rwlock.Mode(99)})
-	if err == nil {
-		t.Fatal("expected error for unknown mode, got nil")
 	}
 }
 

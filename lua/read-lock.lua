@@ -1,31 +1,34 @@
--- Reader lock acquire script.
+-- Reader lock acquire.
+--
+-- Increments the counter. If the result is non-positive a writer has signalled
+-- intent (BIAS was subtracted); undo and fail. The first reader (counter == 1)
+-- acquires the global lock via SET NX.
+--
+-- Deterministic: no random or time-based operations.
+-- Script-effects replication is enabled so TTLs are propagated as absolute
+-- timestamps (PEXPIREAT) to replicas and the AOF, making recovery safe.
+--
+-- KEYS[1] = lock key
+-- KEYS[2] = counter key
+-- ARGV[1] = reader token
+-- ARGV[2] = lock TTL in ms
 
--- If key WRITER_PREFERRING is not 0 this script retreats if writer has set it's intention to acquire lock.
--- The script increments number of shared locks and if it was the first to do that it tries to acquire lock.
--- If it fails to acquire lock then it decrements number of shared locks back to previous value.
+-- Opt into script-effects replication (Redis 3.2-6.x). No-op in Redis 7.0+.
+if redis.replicate_commands then redis.replicate_commands() end
 
--- KEYS = [GLOB_LOCK_KEY, READ_LOCK_REF_COUNT, WRITER_LOCK_INTENT]
--- ARGV = [TOKEN, EXPIRATION_TIMEOUT, WRITER_PREFERRING]
-
--- if writer preferring enabled then check writer intention to acquire lock
-if tonumber(ARGV[3]) ~= 0 and redis.call("EXISTS", KEYS[3]) == 1 then
-    -- failed
+local c = redis.call("INCR", KEYS[2])
+if c <= 0 then
+    -- Writer intent is active; undo and fail.
+    redis.call("DECR", KEYS[2])
     return 0
-else
-    -- increment ref counter. if first, acquire global lock.
-    if redis.call("INCR", KEYS[2]) == 1  then
-        -- acquire global lock
-        if redis.call("SET", KEYS[1], ARGV[1], "PX", ARGV[2], "NX") then
-            -- global lock acquired. success
-            return 1
-        else
-            -- global lock not acquired. decrement ref counter
-            redis.call("DECR", KEYS[2])
-            -- failed
-            return 0
-        end
-    else
-        -- global lock must be acquired by some other reader. success
-        return 1
+end
+
+if c == 1 then
+    -- First reader: acquire the global lock.
+    if not redis.call("SET", KEYS[1], ARGV[1], "PX", ARGV[2], "NX") then
+        redis.call("DECR", KEYS[2])
+        return 0
     end
 end
+
+return 1

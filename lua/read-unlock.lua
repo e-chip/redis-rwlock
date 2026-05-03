@@ -1,24 +1,26 @@
--- Reader lock release script.
+-- Reader lock release.
+--
+-- Decrements the counter. Releases the global lock when the counter reaches 0
+-- (no writer waiting) or -BIAS (writer was waiting and is now clear to acquire).
+--
+-- Deterministic: no random or time-based operations.
+-- Script-effects replication is enabled so individual commands are logged to
+-- the AOF rather than the EVAL call, making recovery safe.
+--
+-- KEYS[1] = lock key
+-- KEYS[2] = counter key
+-- ARGV[1] = reader token
 
--- This script decrements number of shared locks and if it was the last tries to release global lock.
--- If it fails to release global lock number of shared lock remains decremented.
+-- Opt into script-effects replication (Redis 3.2-6.x). No-op in Redis 7.0+.
+if redis.replicate_commands then redis.replicate_commands() end
 
--- KEYS = [GLOB_LOCK_KEY, READ_LOCK_REF_COUNT]
--- ARGV = [TOKEN]
+local BIAS = 1073741824
 
--- decrement ref counter. if last, release global lock.
-if redis.call("DECR", KEYS[2]) == 0 then
-    -- check that global lock is ours
+local c = redis.call("DECR", KEYS[2])
+if c == 0 or c == -BIAS then
     if redis.call("GET", KEYS[1]) == ARGV[1] then
-        -- release global lock
         redis.call("DEL", KEYS[1], KEYS[2])
-        -- success
-        return 1
-    else
-        -- failed to release global lock
-        return 0
     end
-else
-    -- success
-    return 1
 end
+
+return 1

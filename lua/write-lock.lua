@@ -1,21 +1,39 @@
--- Writer lock acquire script.
+-- Writer lock acquire.
+--
+-- Mirrors sync.RWMutex: subtracts BIAS from the counter to signal intent and
+-- block new readers. Tries to acquire the global lock via SET NX; readers
+-- release it when the last one departs and the counter reaches -BIAS.
+-- PEXPIRE is set on every failed attempt so the counter self-heals if the
+-- writer crashes or times out.
+--
+-- Deterministic: no random or time-based operations.
+-- Script-effects replication is enabled so PEXPIRE and SET PX are logged as
+-- PEXPIREAT / SET PXAT (absolute timestamps) to the AOF and replicas.
+-- This preserves correct TTL values across restarts and replica failovers.
+--
+-- KEYS[1] = lock key
+-- KEYS[2] = counter key
+-- ARGV[1] = writer token
+-- ARGV[2] = lock TTL in ms
 
--- This script sets writer intention to acquire the lock.
--- Then it tries to acquire the lock. If lock is acquired successfully intention is reset.
--- If it failed to acquire the lock the intention remains set to prevent adding new writer-preferring readers.
+-- Opt into script-effects replication (Redis 3.2-6.x). No-op in Redis 7.0+.
+if redis.replicate_commands then redis.replicate_commands() end
 
--- KEYS = [GLOB_LOCK_KEY, READ_LOCK_REF_COUNT, WRITER_LOCK_INTENT]
--- ARGV = [TOKEN, EXPIRATION_TIMEOUT]
+local BIAS = 1073741824
 
--- set writer intention to acquire global lock
-redis.call("SET", KEYS[3], 1, "PX", ARGV[2])
--- acquire global lock
-if redis.call("SET", KEYS[1], ARGV[1], "PX", ARGV[2], "NX") then
-    -- global lock acquired. reset intention. remove dangling readers refs.
-    redis.call("DEL", KEYS[2], KEYS[3])
-    -- success
-    return 1
-else
-    -- failed to acquire global lock
-    return 0
+-- Signal intent if not already done (counter non-negative means no writer yet).
+local c = tonumber(redis.call("GET", KEYS[2]) or "0")
+if c >= 0 then
+    redis.call("DECRBY", KEYS[2], BIAS)
 end
+
+-- Acquire the lock. Readers release it when the last one decrements the
+-- counter to -BIAS and deletes both keys.
+if redis.call("SET", KEYS[1], ARGV[1], "PX", ARGV[2], "NX") then
+    redis.call("DEL", KEYS[2])
+    return 1
+end
+
+-- Not acquired yet; refresh counter TTL so it expires if we stop retrying.
+redis.call("PEXPIRE", KEYS[2], ARGV[2])
+return 0
