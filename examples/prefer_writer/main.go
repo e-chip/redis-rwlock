@@ -23,9 +23,8 @@ type example struct {
 }
 
 func (e *example) WriteSharedData(sharedData *int) {
-	e.wg.Add(1)
-	go func() {
-		for i := 0; i < writeIterations; i++ {
+	e.wg.Go(func() {
+		for range writeIterations {
 			err := e.locker.Write(func() {
 				fmt.Printf("Writing...\n")
 				time.Sleep(writeDuration)
@@ -38,8 +37,7 @@ func (e *example) WriteSharedData(sharedData *int) {
 			time.Sleep(writeInterval)
 		}
 		close(e.doneC)
-		e.wg.Done()
-	}()
+	})
 }
 
 func (e *example) ReadSharedData(sharedData *int) {
@@ -80,7 +78,7 @@ func main() {
 		}
 	)
 	defer redisClient.Close()
-	for i := 0; i < readersCount; i++ {
+	for range readersCount {
 		example.ReadSharedData(&sharedData)
 	}
 	example.WriteSharedData(&sharedData)

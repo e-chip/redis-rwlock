@@ -4,12 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	"github.com/go-redis/redis"
 )
 
 type lockerImpl struct {
-	redisClient *redis.Client
+	redisClient RedisClient
 	options     Options
 
 	keyGlobalLock   string
@@ -29,7 +27,7 @@ func (l *lockerImpl) Write(fn func()) error {
 }
 
 func (l *lockerImpl) do(fn func(), acquire func() (bool, error), refresh func() (bool, error), release func() (bool, error)) error {
-	if l.redisClient.Ping().Err() != nil {
+	if l.redisClient.Ping(l.options.Context) != nil {
 		return ErrConnection
 	}
 	stopRefreshing := make(chan struct{})
@@ -55,7 +53,6 @@ func (l *lockerImpl) do(fn func(), acquire func() (bool, error), refresh func() 
 	}
 
 	return nil
-
 }
 
 func (l *lockerImpl) runFn(fn func()) (err error) {
@@ -76,7 +73,7 @@ func (l *lockerImpl) runFn(fn func()) (err error) {
 }
 
 func (l *lockerImpl) execute(fn func() (bool, error), attempts int) (bool, error) {
-	for i := 0; i < attempts; i++ {
+	for range attempts {
 		if ok, err := fn(); err != nil {
 			return false, err
 		} else if ok {
@@ -110,7 +107,7 @@ func (l *lockerImpl) keepRefreshing(refresh func() (bool, error), stop chan stru
 		case <-l.options.Context.Done():
 			return
 		case <-timer.C:
-			refresh()
+			refresh() //nolint:errcheck
 		}
 	}
 }
@@ -125,7 +122,7 @@ func (l *lockerImpl) acquireReader() (bool, error) {
 	default:
 		return false, ErrUnknownMode
 	}
-	return l.execScript(acquireReadLock, []string{
+	return l.execScript(readLockScript, []string{
 		l.keyGlobalLock,
 		l.keyReadersCount,
 		l.keyWriterIntent,
@@ -133,20 +130,20 @@ func (l *lockerImpl) acquireReader() (bool, error) {
 }
 
 func (l *lockerImpl) releaseReader() (bool, error) {
-	return l.execScript(releaseReadLock, []string{
+	return l.execScript(readUnlockScript, []string{
 		l.keyGlobalLock,
 		l.keyReadersCount,
 	}, l.options.ReaderLockToken)
 }
 
 func (l *lockerImpl) refreshReader() (bool, error) {
-	return l.execScript(refreshLock, []string{
+	return l.execScript(lockRefreshScript, []string{
 		l.keyGlobalLock,
 	}, l.options.ReaderLockToken, l.lockTTL)
 }
 
 func (l *lockerImpl) acquireWriter() (bool, error) {
-	return l.execScript(acquireWriteLock, []string{
+	return l.execScript(writeLockScript, []string{
 		l.keyGlobalLock,
 		l.keyReadersCount,
 		l.keyWriterIntent,
@@ -154,24 +151,21 @@ func (l *lockerImpl) acquireWriter() (bool, error) {
 }
 
 func (l *lockerImpl) releaseWriter() (bool, error) {
-	return l.execScript(releaseWriteLock, []string{
+	return l.execScript(writeUnlockScript, []string{
 		l.keyGlobalLock,
 	}, l.writerToken)
 }
 
 func (l *lockerImpl) refreshWriter() (bool, error) {
-	return l.execScript(refreshLock, []string{
+	return l.execScript(lockRefreshScript, []string{
 		l.keyGlobalLock,
 	}, l.writerToken, l.lockTTL)
 }
 
-func (l *lockerImpl) execScript(script *redis.Script, keys []string, args ...interface{}) (bool, error) {
-	status, err := script.Run(l.redisClient, keys, args...).Result()
+func (l *lockerImpl) execScript(script string, keys []string, args ...any) (bool, error) {
+	status, err := l.redisClient.Eval(l.options.Context, script, keys, args...)
 	if err != nil {
 		return false, err
 	}
-	if status == int64(1) {
-		return true, nil
-	}
-	return false, nil
+	return status == int64(1), nil
 }

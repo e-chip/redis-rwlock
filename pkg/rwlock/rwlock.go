@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/go-redis/redis"
 	"github.com/gofrs/uuid"
 )
 
@@ -32,7 +31,7 @@ type Locker interface {
 
 // New instance of RW-Locker.
 // keyLock, keyReadersCount, keyWriterIntent must be unique keys that will be used by locker implementation.
-func New(redisClient *redis.Client, keyLock, keyReadersCount, keyWriterIntent string, opts Options) Locker {
+func New(redisClient RedisClient, keyLock, keyReadersCount, keyWriterIntent string, opts Options) Locker {
 	prepareOpts(&opts)
 	return &lockerImpl{
 		redisClient:     redisClient,
