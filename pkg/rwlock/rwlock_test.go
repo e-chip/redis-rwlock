@@ -379,9 +379,9 @@ func TestErrConnection(t *testing.T) {
 	}
 }
 
-// TestWriterIntentBlocksReaders verifies that when a writer is contending, new readers are blocked
-// (this is the actual behavior of both ModePreferWriter and ModePreferReader due to existing Lua behavior).
-func TestWriterIntentBlocksReaders(t *testing.T) {
+// TestModePreferWriterBlocksNewReaders verifies that in ModePreferWriter, a late reader is blocked
+// while a writer has declared its intent to acquire the lock.
+func TestModePreferWriterBlocksNewReaders(t *testing.T) {
 	_, tc := setupMiniredis(t)
 
 	opts := rwlock.Options{
@@ -423,6 +423,52 @@ func TestWriterIntentBlocksReaders(t *testing.T) {
 
 	if err != rwlock.ErrTimeout {
 		t.Errorf("expected late reader to be blocked by writer intent (ErrTimeout), got %v", err)
+	}
+}
+
+// TestModePreferReaderAllowsNewReaders verifies that in ModePreferReader, a late reader is NOT blocked
+// by writer intent and can join the existing reader group.
+func TestModePreferReaderAllowsNewReaders(t *testing.T) {
+	_, tc := setupMiniredis(t)
+
+	opts := rwlock.Options{
+		Mode:          rwlock.ModePreferReader,
+		RetryCount:    3,
+		RetryInterval: 5 * time.Millisecond,
+	}
+	readerLocker := rwlock.New(tc, "lock", "readers", "intent", opts)
+	writerLocker := rwlock.New(tc, "lock", "readers", "intent", opts)
+
+	readerAcquired := make(chan struct{})
+	readerRelease := make(chan struct{})
+
+	// Reader 1: holds the read lock.
+	go func() {
+		_ = readerLocker.Read(func() {
+			close(readerAcquired)
+			<-readerRelease
+		})
+	}()
+	<-readerAcquired
+
+	// Writer: sets writer intent (will block until reader 1 releases).
+	writerDone := make(chan error, 1)
+	go func() {
+		writerDone <- writerLocker.Write(func() {})
+	}()
+
+	// Give the writer goroutine time to set its intent key.
+	time.Sleep(20 * time.Millisecond)
+
+	// Reader 2: must succeed in ModePreferReader despite writer intent.
+	lateReaderLocker := rwlock.New(tc, "lock", "readers", "intent", opts)
+	err := lateReaderLocker.Read(func() {})
+
+	close(readerRelease)
+	<-writerDone
+
+	if err != nil {
+		t.Errorf("expected late reader to succeed in ModePreferReader, got %v", err)
 	}
 }
 

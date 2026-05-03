@@ -5,8 +5,10 @@ import (
 	"sync"
 	"time"
 
-	rwlock "github.com/e-chip/redis-rwlock"
-	"github.com/go-redis/redis"
+	goredis "github.com/go-redis/redis"
+
+	goredisv6 "github.com/e-chip/redis-rwlock/adapters/goredisv6"
+	"github.com/e-chip/redis-rwlock/pkg/rwlock"
 )
 
 const (
@@ -23,8 +25,10 @@ type example struct {
 }
 
 func (e *example) WriteSharedData(sharedData *int) {
-	e.wg.Go(func() {
-		for range writeIterations {
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		for i := 0; i < writeIterations; i++ {
 			err := e.locker.Write(func() {
 				fmt.Printf("Writing...\n")
 				time.Sleep(writeDuration)
@@ -37,16 +41,16 @@ func (e *example) WriteSharedData(sharedData *int) {
 			time.Sleep(writeInterval)
 		}
 		close(e.doneC)
-	})
+	}()
 }
 
 func (e *example) ReadSharedData(sharedData *int) {
 	e.wg.Add(1)
 	go func() {
+		defer e.wg.Done()
 		for {
 			select {
 			case <-e.doneC:
-				e.wg.Done()
 				return
 			default:
 				err := e.locker.Read(func() {
@@ -65,22 +69,28 @@ func (e *example) Wait() {
 }
 
 func main() {
-	var (
-		sharedData  = 0
-		redisClient = redis.NewClient(&redis.Options{
-			Network: "tcp",
-			Addr:    "localhost:6379",
-			DB:      9,
-		})
-		example = example{
-			locker: rwlock.New(redisClient, "GLOBAL_LOCK", "READER_COUNT", "WRITER_INTENT", &rwlock.Options{}),
-			doneC:  make(chan struct{}),
-		}
-	)
-	defer redisClient.Close()
-	for range readersCount {
-		example.ReadSharedData(&sharedData)
+	c := goredis.NewClient(&goredis.Options{
+		Network: "tcp",
+		Addr:    "localhost:6379",
+		DB:      9,
+	})
+	defer c.Close()
+
+	ex := example{
+		locker: rwlock.New(
+			goredisv6.New(c),
+			"GLOBAL_LOCK",
+			"READER_COUNT",
+			"WRITER_INTENT",
+			rwlock.Options{Mode: rwlock.ModePreferWriter},
+		),
+		doneC: make(chan struct{}),
 	}
-	example.WriteSharedData(&sharedData)
-	example.Wait()
+
+	sharedData := 0
+	for i := 0; i < readersCount; i++ {
+		ex.ReadSharedData(&sharedData)
+	}
+	ex.WriteSharedData(&sharedData)
+	ex.Wait()
 }

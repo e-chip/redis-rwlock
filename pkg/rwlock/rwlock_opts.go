@@ -19,7 +19,7 @@ type Options struct {
 	// Default: 200
 	RetryCount int
 
-	// RetryInterval sets interval between attemts to acquire lock.
+	// RetryInterval sets interval between attempts to acquire lock.
 	// Minimum: 1 millisecond
 	// Default: 10 milliseconds
 	RetryInterval time.Duration
@@ -32,8 +32,9 @@ type Options struct {
 	// Used for debugging.
 	AppID string
 
-	// ReaderLockToken should be the same for all readers group.
-	// You can override default token here to create subgroups of readers.
+	// ReaderLockToken is the value stored in the global lock key while any reader holds it.
+	// Must be the same across all members of a reader group.
+	// Override to create independent reader groups that share the same Redis keys.
 	ReaderLockToken string
 
 	// Mode of the lock behavior.
@@ -48,9 +49,11 @@ type Mode int
 const (
 	// ModeUndefined will trigger default option to be used.
 	ModeUndefined Mode = iota
-	// ModePreferReader makes the writer and reader to have equal priority.
+	// ModePreferReader does not block new readers when a writer has declared intent.
+	// Writers must wait until all readers (present and future) finish naturally.
 	ModePreferReader
-	// ModePreferWriter makes the writer to have higher priority over the reader.
+	// ModePreferWriter blocks new readers once a writer has declared intent to acquire.
+	// Existing readers finish, then the writer proceeds. Prevents writer starvation.
 	ModePreferWriter
 )
 

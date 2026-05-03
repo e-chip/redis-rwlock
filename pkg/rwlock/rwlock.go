@@ -29,8 +29,9 @@ type Locker interface {
 	Write(fn func()) error
 }
 
-// New instance of RW-Locker.
-// keyLock, keyReadersCount, keyWriterIntent must be unique keys that will be used by locker implementation.
+// New returns a Locker backed by the given RedisClient.
+// keyLock, keyReadersCount, keyWriterIntent are three distinct Redis keys used by the implementation;
+// they must not be shared with other data.
 func New(redisClient RedisClient, keyLock, keyReadersCount, keyWriterIntent string, opts Options) Locker {
 	prepareOpts(&opts)
 	return &lockerImpl{
