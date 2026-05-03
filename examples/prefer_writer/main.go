@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -8,7 +9,7 @@ import (
 	goredis "github.com/go-redis/redis"
 
 	goredisv6 "github.com/e-chip/redis-rwlock/adapters/goredisv6"
-	"github.com/e-chip/redis-rwlock/pkg/rwlock"
+	rwlock "github.com/e-chip/redis-rwlock/v2"
 )
 
 const (
@@ -29,11 +30,12 @@ func (e *example) WriteSharedData(sharedData *int) {
 	go func() {
 		defer e.wg.Done()
 		for i := 0; i < writeIterations; i++ {
-			err := e.locker.Write(func() {
+			err := e.locker.Write(context.Background(), func(_ context.Context) error {
 				fmt.Printf("Writing...\n")
 				time.Sleep(writeDuration)
 				(*sharedData)++
 				fmt.Printf("Write: %d\n", *sharedData)
+				return nil
 			})
 			if err != nil {
 				fmt.Printf("Writing error: %v\n", err)
@@ -53,8 +55,9 @@ func (e *example) ReadSharedData(sharedData *int) {
 			case <-e.doneC:
 				return
 			default:
-				err := e.locker.Read(func() {
+				err := e.locker.Read(context.Background(), func(_ context.Context) error {
 					fmt.Printf("Read: %d\n", *sharedData)
+					return nil
 				})
 				if err != nil {
 					fmt.Printf("Read error: %v\n", err)
@@ -76,15 +79,18 @@ func main() {
 	})
 	defer c.Close()
 
+	locker, err := rwlock.New(
+		goredisv6.New(c),
+		"myapp:rwlock",
+		rwlock.Options{Mode: rwlock.ModePreferWriter},
+	)
+	if err != nil {
+		panic(err)
+	}
+
 	ex := example{
-		locker: rwlock.New(
-			goredisv6.New(c),
-			"GLOBAL_LOCK",
-			"READER_COUNT",
-			"WRITER_INTENT",
-			rwlock.Options{Mode: rwlock.ModePreferWriter},
-		),
-		doneC: make(chan struct{}),
+		locker: locker,
+		doneC:  make(chan struct{}),
 	}
 
 	sharedData := 0

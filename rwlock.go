@@ -1,54 +1,66 @@
-// Package rwlock is an adapter package to pkg/rwlock.
-// Consider using pkg/rwlock package in new projects as this file may be eventually removed.
 package rwlock
 
 import (
 	"context"
-
-	goredis "github.com/go-redis/redis"
-
-	"github.com/e-chip/redis-rwlock/pkg/rwlock"
+	"crypto/rand"
+	"errors"
+	"fmt"
+	"strconv"
+	"time"
 )
 
-// Locker is an alias type to #rwlock.Locker
-type Locker = rwlock.Locker
+var (
+	// ErrTimeout is returned when the lock cannot be acquired within RetryCount attempts.
+	ErrTimeout = errors.New("timeout exceeded but lock not acquired")
+	// ErrInterrupted is returned when the context is cancelled while waiting for the lock.
+	ErrInterrupted = errors.New("interrupted")
+	// ErrNotReleased is returned when the lock was acquired but could not be released.
+	ErrNotReleased = errors.New("lock was not released")
+)
 
-// Options is an alias type to #rwlock.Options
-type Options = rwlock.Options
+// Locker provides distributed read-write locking backed by Redis.
+type Locker interface {
+	// Read executes fn with shared reader access.
+	// Multiple readers may hold the lock concurrently.
+	Read(ctx context.Context, fn func(ctx context.Context) error) error
 
-// Make new instance of RW-Locker.
-// Deprecated due to incorrect naming of the function.
-// Use #rwlock.New instead.
-func Make(redisClient *goredis.Client, keyLock, keyReadersCount, keyWriterIntent string, opts *Options) Locker {
-	return New(redisClient, keyLock, keyReadersCount, keyWriterIntent, opts)
+	// Write executes fn with exclusive writer access.
+	// No other reader or writer may hold the lock concurrently.
+	Write(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
-// New instance of RW-Locker.
-// Use #rwlock.New instead.
-func New(redisClient *goredis.Client, keyLock, keyReadersCount, keyWriterIntent string, opts *Options) Locker {
-	if opts == nil {
-		opts = &Options{}
+// New returns a Locker that uses keyPrefix to derive the three Redis keys it manages internally.
+// keyPrefix must be non-empty and unique per logical lock.
+func New(client RedisClient, keyPrefix string, opts Options) (Locker, error) {
+	if keyPrefix == "" {
+		return nil, errors.New("rwlock: keyPrefix must not be empty")
 	}
-	return rwlock.New(&v6Client{c: redisClient}, keyLock, keyReadersCount, keyWriterIntent, *opts)
-}
-
-// v6Client wraps a go-redis v6 *redis.Client to satisfy rwlock.RedisClient.
-type v6Client struct {
-	c *goredis.Client
-}
-
-func (cl *v6Client) Ping(_ context.Context) error {
-	return cl.c.Ping().Err()
-}
-
-func (cl *v6Client) Eval(_ context.Context, script string, keys []string, args ...any) (int64, error) {
-	res, err := cl.c.Eval(script, keys, args...).Result()
-	if err != nil {
-		return 0, err
+	switch opts.Mode {
+	case ModeUndefined, ModePreferReader, ModePreferWriter:
+		// valid
+	default:
+		return nil, fmt.Errorf("rwlock: unknown mode %d", opts.Mode)
 	}
-	v, ok := res.(int64)
-	if !ok {
-		return 0, nil
+	prepareOpts(&opts)
+	return &lockerImpl{
+		redisClient:     client,
+		options:         opts,
+		keyGlobalLock:   keyPrefix + ":lock",
+		keyReadersCount: keyPrefix + ":readers",
+		keyWriterIntent: keyPrefix + ":intent",
+		writerToken:     makeToken(opts.AppID),
+		lockTTL:         strconv.FormatInt(int64(opts.LockTTL/time.Millisecond), 10),
+	}, nil
+}
+
+func makeToken(appID string) string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant bits
+	token := fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+	if appID != "" {
+		return appID + "_" + token
 	}
-	return v, nil
+	return token
 }

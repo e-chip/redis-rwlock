@@ -2,7 +2,8 @@ go 1.25.0
 
 use (
 	.
-	./adapters/goredis9
 	./adapters/goredisv6
+	./adapters/goredisv9
 	./examples/prefer_writer
+	./tests
 )

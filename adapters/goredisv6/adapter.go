@@ -6,11 +6,11 @@ import (
 
 	goredis "github.com/go-redis/redis"
 
-	"github.com/e-chip/redis-rwlock/pkg/rwlock"
+	rwlock "github.com/e-chip/redis-rwlock/v2"
 )
 
 // Client wraps a go-redis v6 *redis.Client to implement rwlock.RedisClient.
-// Scripts are cached by SHA to use EVALSHA with fallback to EVAL (same as redis.Script.Run).
+// Scripts are cached by SHA to use EVALSHA with fallback to EVAL.
 type Client struct {
 	c       *goredis.Client
 	scripts sync.Map // map[string]*goredis.Script keyed by script content
@@ -19,10 +19,6 @@ type Client struct {
 // New returns a rwlock.RedisClient backed by a go-redis v6 client.
 func New(c *goredis.Client) rwlock.RedisClient {
 	return &Client{c: c}
-}
-
-func (cl *Client) Ping(_ context.Context) error {
-	return cl.c.Ping().Err()
 }
 
 func (cl *Client) Eval(_ context.Context, script string, keys []string, args ...any) (int64, error) {
