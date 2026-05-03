@@ -8,7 +8,7 @@
 -- ARGV = [TOKEN, EXPIRATION_TIMEOUT, WRITER_PREFERRING]
 
 -- if writer preferring enabled then check writer intention to acquire lock
-if ARGV[3] ~= 0 and redis.call("EXISTS", KEYS[3]) == 1 then
+if tonumber(ARGV[3]) ~= 0 and redis.call("EXISTS", KEYS[3]) == 1 then
     -- failed
     return 0
 else
